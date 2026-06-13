@@ -24,6 +24,7 @@ const $ = (id) => document.getElementById(id);
 let roster = makeBlankRoster();
 let sheetRows = [];
 let sheetHeaders = [];
+const STAFF_PICKER_IDS = Array.from({ length: 30 }, (_, index) => String(index + 1).padStart(2, "0"));
 
 function normalizeId(value) {
   const digits = String(value || "").replace(/[^\d]/g, "");
@@ -57,6 +58,48 @@ function getConfig() {
     leaveStaff: parseIds($("leaveStaff").value),
     watchStaff: parseIds($("watchStaff").value)
   };
+}
+
+function renderStaffPicker() {
+  const selected = new Set(parseIds($("activeStaff").value));
+  const bosses = new Set(parseIds($("bosses").value));
+  const females = new Set(parseIds($("females").value));
+  const draftees = new Set(parseIds($("draftees").value));
+  $("activeStaffPicker").innerHTML = STAFF_PICKER_IDS.map((id) => {
+    const classes = [
+      "staff-chip",
+      selected.has(id) ? "is-selected" : "",
+      bosses.has(id) ? "is-boss" : "",
+      females.has(id) ? "is-female" : "",
+      draftees.has(id) ? "is-draftee" : ""
+    ].filter(Boolean).join(" ");
+    return `<button class="${classes}" type="button" data-staff-id="${id}" aria-pressed="${selected.has(id)}">${id}</button>`;
+  }).join("");
+  document.querySelectorAll("[data-staff-id]").forEach((button) => {
+    button.addEventListener("click", () => toggleStaff(button.dataset.staffId));
+  });
+}
+
+function syncStaffPickerFromText() {
+  const ids = parseIds($("activeStaff").value).sort((a, b) => a.localeCompare(b));
+  $("activeStaff").value = idsToText(ids);
+  renderStaffPicker();
+  persist();
+}
+
+function toggleStaff(id) {
+  const current = new Set(parseIds($("activeStaff").value));
+  if (current.has(id)) current.delete(id);
+  else current.add(id);
+  $("activeStaff").value = idsToText([...current].sort((a, b) => a.localeCompare(b)));
+  renderStaffPicker();
+  persist();
+}
+
+function setAllStaff(ids) {
+  $("activeStaff").value = idsToText(ids);
+  renderStaffPicker();
+  persist();
 }
 
 function hourRange(start, end) {
@@ -465,6 +508,7 @@ function applyInputs(inputs = {}) {
   Object.entries(inputs).forEach(([key, value]) => {
     if ($(key)) $(key).value = value || "";
   });
+  renderStaffPicker();
 }
 
 function persist() {
@@ -477,6 +521,7 @@ function restore() {
   const raw = localStorage.getItem("fire-duty-roster");
   if (!raw) {
     addExtraDuty();
+    renderStaffPicker();
     renderRoster();
     validateRoster();
     return;
@@ -793,6 +838,12 @@ $("clearBtn").addEventListener("click", clearAll);
 $("loadSheetBtn").addEventListener("click", loadSheet);
 $("analyzeNightBtn").addEventListener("click", analyzeNightStats);
 $("dateColumn").addEventListener("change", populateMonthFilter);
+$("selectAllStaffBtn").addEventListener("click", () => setAllStaff(STAFF_PICKER_IDS));
+$("invertStaffBtn").addEventListener("click", () => {
+  const selected = new Set(parseIds($("activeStaff").value));
+  setAllStaff(STAFF_PICKER_IDS.filter((id) => !selected.has(id)));
+});
+$("clearStaffBtn").addEventListener("click", () => setAllStaff([]));
 $("importJsonInput").addEventListener("change", (event) => {
   const file = event.target.files[0];
   if (file) importJson(file);
@@ -800,6 +851,10 @@ $("importJsonInput").addEventListener("change", (event) => {
 
 ["activeStaff", "prevNightStaff", "bosses", "females", "rookies", "draftees", "leaveStaff", "watchStaff"].forEach((id) => {
   $(id).addEventListener("input", persist);
+});
+$("activeStaff").addEventListener("change", syncStaffPickerFromText);
+["bosses", "females", "draftees"].forEach((id) => {
+  $(id).addEventListener("input", renderStaffPicker);
 });
 
 restore();

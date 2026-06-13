@@ -30,6 +30,14 @@
         <span>今日上班人員</span>
         <textarea id="activeStaff" rows="3" placeholder="例：01,02,04,05,06,07,08,09,10,12,13,15,17,18,19,20"></textarea>
       </label>
+      <div class="person-picker" aria-label="今日上班人員點選區">
+        <div class="picker-actions">
+          <button id="selectAllStaffBtn" class="small" type="button">全選</button>
+          <button id="invertStaffBtn" class="small" type="button">反選</button>
+          <button id="clearStaffBtn" class="small danger" type="button">清除人員</button>
+        </div>
+        <div id="activeStaffPicker" class="staff-grid"></div>
+      </div>
 
       <label>
         <span>前一日深夜勤務人員</span>
