@@ -11,13 +11,10 @@ const COLUMNS = [
   { id: "inspection", label: "消防查察", kind: "other" },
   { id: "meeting", label: "會勘/開會", kind: "other" },
   { id: "publicity", label: "防災宣導", kind: "other" },
-  { id: "hydrant", label: "水源查察", kind: "other" },
-  { id: "rookieTraining", label: "新人訓練", kind: "training" },
   { id: "training", label: "訓練", kind: "training" },
-  { id: "other", label: "其他", kind: "other" },
   { id: "standby", label: "備勤", kind: "standby" },
-  { id: "rest", label: "休息", kind: "rest" },
-  { id: "watch", label: "值宿", kind: "desk" }
+  { id: "other", label: "其他", kind: "other" },
+  { id: "rest", label: "休息", kind: "rest" }
 ];
 
 const $ = (id) => document.getElementById(id);
@@ -157,7 +154,7 @@ function generateRoster() {
   place(nightRows, "amb2", pairs.second, true);
 
   const watch = config.watchStaff[0] || nightPool.find((id) => ![...pairs.first, ...pairs.second].includes(id)) || nightPool[0];
-  if (watch) place([...hourRange("22-23", "23-00"), ...hourRange("23-00", "00-01"), ...hourRange("00-01", "06-07")], "watch", [watch], true);
+  if (watch) place([...hourRange("22-23", "23-00"), ...hourRange("23-00", "00-01"), ...hourRange("00-01", "06-07")], "desk", [watch], true);
 
   place(hourRange("20-21", "00-01"), "amb1", pairs.second, true);
   place(hourRange("22-23", "00-01"), "standby", pairs.first, true);
@@ -167,7 +164,7 @@ function generateRoster() {
   });
 
   config.rookies.forEach((id) => {
-    if (active.includes(id)) place(hourRange("10-11", "12-13"), "rookieTraining", [id], true);
+    if (active.includes(id)) place(hourRange("10-11", "12-13"), "training", [id], true);
   });
 
   config.draftees.forEach((id) => {
@@ -216,7 +213,7 @@ function readRosterFromTable() {
 function renderRoster() {
   const thead = $("rosterTable").querySelector("thead");
   const tbody = $("rosterTable").querySelector("tbody");
-  thead.innerHTML = `<tr><th>時段</th>${COLUMNS.map((col) => `<th>${col.label}</th>`).join("")}</tr>`;
+  thead.innerHTML = `<tr><th>時段 \\ 項目</th>${COLUMNS.map((col) => `<th>${col.label}</th>`).join("")}</tr>`;
   tbody.innerHTML = HOURS.map((hour, rowIndex) => {
     const nightClass = rowIndex >= 14 || rowIndex <= 0 ? "row-night" : "";
     const trainClass = rowIndex >= 8 && rowIndex <= 9 ? "row-training" : "";
@@ -296,7 +293,7 @@ function validateRoster() {
     });
   });
 
-  const nightCols = ["desk", "amb1", "amb2", "watch"];
+  const nightCols = ["desk", "amb1", "amb2"];
   hourRange("22-23", "08-09").forEach((row) => {
     nightCols.forEach((col) => {
       const boss = parseIds(roster[row]?.[col]).find((id) => config.bosses.includes(id));
@@ -329,7 +326,7 @@ function validateRoster() {
   });
 
   config.rookies.forEach((id) => {
-    if (config.active.includes(id) && (stats[id]?.rookieTraining || 0) < 2) {
+    if (config.active.includes(id) && (stats[id]?.training || 0) < 2) {
       issues.push({ level: "warn", text: `${id} 新人訓練未達 2 小時。` });
     }
   });
@@ -363,17 +360,16 @@ function hourRange(start, end) {
 }
 
 function buildStats(active) {
-  const stats = Object.fromEntries(active.map((id) => [id, { desk: 0, rest: 0, amb: 0, training: 0, other: 0, rookieTraining: 0 }]));
+  const stats = Object.fromEntries(active.map((id) => [id, { desk: 0, rest: 0, amb: 0, training: 0, other: 0 }]));
   roster.forEach((row) => {
     COLUMNS.forEach((col) => {
       parseIds(row[col.id]).forEach((id) => {
-        if (!stats[id]) stats[id] = { desk: 0, rest: 0, amb: 0, training: 0, other: 0, rookieTraining: 0 };
+        if (!stats[id]) stats[id] = { desk: 0, rest: 0, amb: 0, training: 0, other: 0 };
         if (col.id === "rest") stats[id].rest += 1;
-        else if (col.id === "desk" || col.id === "watch") stats[id].desk += 1;
+        else if (col.id === "desk") stats[id].desk += 1;
         else if (col.kind === "amb") stats[id].amb += 1;
         else if (col.kind === "training") stats[id].training += 1;
         else if (col.kind === "other") stats[id].other += 1;
-        if (col.id === "rookieTraining") stats[id].rookieTraining += 1;
       });
     });
   });
@@ -433,7 +429,7 @@ function addExtraDuty(data = {}) {
   const type = node.querySelector(".extra-type");
   const start = node.querySelector(".extra-start");
   const end = node.querySelector(".extra-end");
-  type.innerHTML = COLUMNS.filter((col) => ["inspection", "meeting", "publicity", "hydrant", "rookieTraining", "other"].includes(col.id))
+  type.innerHTML = COLUMNS.filter((col) => ["inspection", "meeting", "publicity", "training", "other"].includes(col.id))
     .map((col) => `<option value="${col.id}">${col.label}</option>`).join("");
   start.innerHTML = HOURS.map((hour) => `<option value="${hour}">${hour}</option>`).join("");
   end.innerHTML = HOURS.map((hour) => `<option value="${hour}">${hour}</option>`).join("");
@@ -493,6 +489,8 @@ function dateStamp() {
 
 function collectInputs() {
   return {
+    dutyUnit: $("dutyUnit").value,
+    dutyDate: $("dutyDate").value,
     activeStaff: $("activeStaff").value,
     prevNightStaff: $("prevNightStaff").value,
     bosses: $("bosses").value,
@@ -500,7 +498,13 @@ function collectInputs() {
     rookies: $("rookies").value,
     draftees: $("draftees").value,
     leaveStaff: $("leaveStaff").value,
-    watchStaff: $("watchStaff").value
+    watchStaff: $("watchStaff").value,
+    summaryDutyRest: $("summaryDutyRest").value,
+    summaryLeave: $("summaryLeave").value,
+    summaryCompRest: $("summaryCompRest").value,
+    summaryVacation: $("summaryVacation").value,
+    summarySleep: $("summarySleep").value,
+    summarySickLeave: $("summarySickLeave").value
   };
 }
 
@@ -542,6 +546,8 @@ function restore() {
 
 function loadSample() {
   applyInputs({
+    dutyUnit: "湖口分隊",
+    dutyDate: "1150613",
     activeStaff: "01,02,04,05,06,07,08,09,10,12,13,15,17,18,19,20",
     prevNightStaff: "05,08,10,12,17",
     bosses: "01,02,03",
@@ -549,7 +555,13 @@ function loadSample() {
     rookies: "09,13,15",
     draftees: "18,19,20",
     leaveStaff: "07,12",
-    watchStaff: ""
+    watchStaff: "",
+    summaryDutyRest: "03,05,06,07,11,14,20",
+    summaryLeave: "01",
+    summaryCompRest: "08,15",
+    summaryVacation: "09",
+    summarySleep: "",
+    summarySickLeave: "04"
   });
   $("extraDutyList").innerHTML = "";
   addExtraDuty({ type: "inspection", start: "10-11", end: "12-13", staff: "07,12" });
@@ -562,7 +574,7 @@ function clearAll() {
   localStorage.removeItem("fire-duty-roster");
   roster = makeBlankRoster();
   $("extraDutyList").innerHTML = "";
-  applyInputs({ activeStaff: "", prevNightStaff: "", bosses: "01,02,03", females: "06,09,17", rookies: "09,13,15", draftees: "18,19,20", leaveStaff: "", watchStaff: "" });
+  applyInputs({ dutyUnit: "湖口分隊", dutyDate: "", activeStaff: "", prevNightStaff: "", bosses: "01,02,03", females: "06,09,17", rookies: "09,13,15", draftees: "18,19,20", leaveStaff: "", watchStaff: "", summaryDutyRest: "", summaryLeave: "", summaryCompRest: "", summaryVacation: "", summarySleep: "", summarySickLeave: "" });
   addExtraDuty();
   renderRoster();
   validateRoster();
@@ -830,6 +842,7 @@ function escapeAttr(value) {
 
 $("generateBtn").addEventListener("click", generateRoster);
 $("validateBtn").addEventListener("click", validateRoster);
+$("validateTopBtn").addEventListener("click", validateRoster);
 $("addDutyBtn").addEventListener("click", () => addExtraDuty());
 $("exportCsvBtn").addEventListener("click", exportCsv);
 $("exportJsonBtn").addEventListener("click", exportJson);
@@ -849,7 +862,7 @@ $("importJsonInput").addEventListener("change", (event) => {
   if (file) importJson(file);
 });
 
-["activeStaff", "prevNightStaff", "bosses", "females", "rookies", "draftees", "leaveStaff", "watchStaff"].forEach((id) => {
+["dutyUnit", "dutyDate", "activeStaff", "prevNightStaff", "bosses", "females", "rookies", "draftees", "leaveStaff", "watchStaff", "summaryDutyRest", "summaryLeave", "summaryCompRest", "summaryVacation", "summarySleep", "summarySickLeave"].forEach((id) => {
   $(id).addEventListener("input", persist);
 });
 $("activeStaff").addEventListener("change", syncStaffPickerFromText);

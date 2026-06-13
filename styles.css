@@ -262,9 +262,28 @@ textarea {
 .issue-ok { color: var(--green); font-weight: 700; }
 
 .table-toolbar {
-  padding: 14px 16px;
+  padding: 6px 10px;
   border-bottom: 1px solid var(--line);
   margin: 0;
+  background: #d9e6f5;
+}
+
+.toolbar-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
+.toolbar-field span {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.toolbar-field input {
+  height: 28px;
+  padding: 4px 8px;
+  min-width: 130px;
 }
 
 .import-btn {
@@ -288,7 +307,7 @@ textarea {
 table {
   border-collapse: separate;
   border-spacing: 0;
-  min-width: 1180px;
+  min-width: 1120px;
   width: 100%;
   font-size: 13px;
 }
@@ -329,7 +348,7 @@ td {
 
 .cell-input {
   width: 100%;
-  min-width: 82px;
+  min-width: 96px;
   min-height: 36px;
   border: 0;
   border-radius: 0;
@@ -347,6 +366,39 @@ td {
 .cell-invalid { outline: 2px solid var(--red); outline-offset: -2px; }
 .row-training td:first-child { background: #ffe08a; }
 .row-night td:first-child { background: #dce8ff; }
+
+.absence-summary {
+  display: grid;
+  grid-template-columns: 72px 1fr 72px 1fr 72px 1fr;
+  border-top: 1px solid #9aa8b8;
+  background: #f6f8fb;
+  min-width: 1120px;
+}
+
+.absence-summary label {
+  display: contents;
+}
+
+.absence-summary span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  margin: 0;
+  border-right: 1px solid #b9c7d6;
+  border-bottom: 1px solid #b9c7d6;
+  background: #fff8cf;
+  color: #2b3650;
+}
+
+.absence-summary input {
+  min-height: 34px;
+  border: 0;
+  border-right: 1px solid #b9c7d6;
+  border-bottom: 1px solid #b9c7d6;
+  border-radius: 0;
+  background: #fbfdff;
+}
 
 .stats-table {
   display: grid;
@@ -461,5 +513,10 @@ td {
 
   .extra-duty {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .absence-summary {
+    grid-template-columns: 70px 1fr;
+    min-width: 0;
   }
 }

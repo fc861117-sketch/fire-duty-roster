@@ -91,11 +91,16 @@
 
     <section class="table-shell">
       <div class="table-toolbar">
-        <div>
-          <h2>勤務表</h2>
-          <p>每格可直接輸入員編，多人用逗號分隔。</p>
-        </div>
+        <label class="toolbar-field">
+          <span>勤務單位：</span>
+          <input id="dutyUnit" type="text" value="湖口分隊">
+        </label>
+        <label class="toolbar-field">
+          <span>勤務日期：</span>
+          <input id="dutyDate" type="text" placeholder="例：1150613">
+        </label>
         <div class="top-actions">
+          <button id="validateTopBtn" class="ghost">查詢</button>
           <button id="exportCsvBtn" class="ghost">匯出 CSV</button>
           <button id="exportJsonBtn" class="ghost">備份 JSON</button>
           <label class="import-btn">
@@ -109,6 +114,14 @@
           <thead></thead>
           <tbody></tbody>
         </table>
+      </div>
+      <div class="absence-summary">
+        <label><span>執休</span><input id="summaryDutyRest" type="text" placeholder="例：03,05,06,07,11,14,20"></label>
+        <label><span>外宿</span><input id="summaryLeave" type="text" placeholder="例：01"></label>
+        <label><span>補休</span><input id="summaryCompRest" type="text" placeholder="例：08,15"></label>
+        <label><span>休假</span><input id="summaryVacation" type="text" placeholder="例：09"></label>
+        <label><span>睡眠</span><input id="summarySleep" type="text"></label>
+        <label><span>事病假</span><input id="summarySickLeave" type="text" placeholder="例：04"></label>
       </div>
     </section>
 
