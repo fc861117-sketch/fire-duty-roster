@@ -148,6 +148,100 @@ function availableFrom(rowIndex, pools) {
   return uniqueIds(pools.flat()).find((id) => id && !busy.has(id));
 }
 
+function ambulanceRunBefore(rowIndex, id, column) {
+  let total = 0;
+  for (let index = rowIndex - 1; index >= 0; index -= 1) {
+    const onAmbulance = parseIds(roster[index][column]).includes(id);
+    if (!onAmbulance) break;
+    total += 1;
+  }
+  return total;
+}
+
+function ambulanceRequiredRows(column, active, config) {
+  if (column === "amb1") return HOURS.map((_, index) => index);
+  const nonDrafteeCount = active.filter((id) => !config.draftees.includes(id)).length;
+  if (nonDrafteeCount <= 5) return [];
+  if (nonDrafteeCount === 6) {
+    return [...hourRange("08-09", "12-13"), ...hourRange("14-15", "18-19")];
+  }
+  return HOURS.map((_, index) => index);
+}
+
+function pickAmbulancePair(rowIndexes, column, active, config, recentPairs = []) {
+  const rows = rowIndexes.filter((rowIndex) => rowIndex >= 0);
+  const busy = new Set(rows.flatMap((rowIndex) => [...busyIdsAt(rowIndex, [column, "standby"])]));
+  const nightRows = new Set(hourRange("22-23", "06-07"));
+  const isNight = rows.some((rowIndex) => nightRows.has(rowIndex));
+  const chunkLength = rows.length;
+  const base = active.filter((id) => {
+    return !config.draftees.includes(id)
+      && !busy.has(id)
+      && ambulanceRunBefore(rows[0], id, column) + chunkLength <= 4;
+  });
+  const preferred = base.filter((id) => {
+    if (isNight && config.bosses.includes(id)) return false;
+    if (column === "amb1" && config.bosses.includes(id)) return false;
+    return true;
+  });
+  const fallback = base.filter((id) => !preferred.includes(id));
+  const pool = [...preferred, ...fallback].filter((id) => !recentPairs.includes(id));
+  const extendedPool = pool.length >= 2 ? pool : [...preferred, ...fallback];
+  const males = extendedPool.filter((id) => !config.females.includes(id));
+  const females = extendedPool.filter((id) => config.females.includes(id));
+  const pair = [males[0], females[0]].filter(Boolean);
+  if (pair.length < 2) {
+    pair.push(...extendedPool.filter((id) => !pair.includes(id)).slice(0, 2 - pair.length));
+  }
+  return pair.length === 2 ? pair : [];
+}
+
+function fillAmbulanceColumn(column, rows, active, config, preferredByRow = new Map()) {
+  let lastPair = [];
+  for (let index = 0; index < rows.length; index += 2) {
+    const chunk = rows.slice(index, index + 2);
+    if (chunk.length < 2) continue;
+    if (chunk.every((rowIndex) => parseIds(roster[rowIndex][column]).length === 2)) continue;
+    const preferred = uniqueIds(chunk.flatMap((rowIndex) => preferredByRow.get(rowIndex) || []));
+    let pair = [];
+    if (preferred.length >= 2) {
+      const busy = new Set(chunk.flatMap((rowIndex) => [...busyIdsAt(rowIndex, [column, "standby"])]));
+      pair = preferred.filter((id) => {
+        return active.includes(id)
+          && !config.draftees.includes(id)
+          && !busy.has(id)
+          && ambulanceRunBefore(chunk[0], id, column) + chunk.length <= 4;
+      }).slice(0, 2);
+      if (pair.filter((id) => config.females.includes(id)).length > 1) pair = [];
+    }
+    if (pair.length < 2) pair = pickAmbulancePair(chunk, column, active, config, lastPair);
+    if (pair.length === 2) {
+      place(chunk, column, pair, true);
+      lastPair = pair;
+    }
+  }
+}
+
+function fillAmbulanceCoverage(active, config) {
+  const amb1Rows = ambulanceRequiredRows("amb1", active, config);
+  fillAmbulanceColumn("amb1", amb1Rows, active, config);
+
+  const preferredAmb2 = new Map();
+  const earlyNightAmb1 = parseIds(roster[HOURS.indexOf("00-01")].amb1);
+  const laterNightAmb1 = parseIds(roster[HOURS.indexOf("02-03")].amb1);
+  hourRange("20-21", "22-23").forEach((row) => preferredAmb2.set(row, laterNightAmb1));
+  hourRange("22-23", "00-01").forEach((row) => preferredAmb2.set(row, earlyNightAmb1));
+  const amb2Rows = ambulanceRequiredRows("amb2", active, config);
+  hourRange("20-21", "00-01")
+    .filter((row) => amb2Rows.includes(row))
+    .forEach((row) => {
+      const pair = preferredAmb2.get(row) || [];
+      if (pair.length === 2) place([row], "amb2", pair, true);
+    });
+  fillAmbulanceColumn("amb1", amb1Rows, active, config);
+  fillAmbulanceColumn("amb2", amb2Rows, active, config, preferredAmb2);
+}
+
 function applyTrainingHour(active) {
   const row = HOURS.indexOf("16-17");
   const busy = busyIdsAt(row, ["training", "standby"]);
@@ -185,15 +279,8 @@ function generateRoster() {
   }
 
   const nightPool = active.filter((id) => !config.bosses.includes(id) && !config.draftees.includes(id));
-  const pairs = pickPairs(nightPool, config.females, config.bosses);
-  const nightRows = hourRange("00-01", "08-09");
-  place(nightRows, "amb1", pairs.first, true);
-  place(nightRows, "amb2", pairs.second, true);
-
-  const nightDesk = nightPool.find((id) => ![...pairs.first, ...pairs.second].includes(id)) || nightPool[0];
+  const nightDesk = nightPool[0];
   if (nightDesk) place([...hourRange("22-23", "23-00"), ...hourRange("23-00", "00-01"), ...hourRange("00-01", "06-07")], "desk", [nightDesk], true);
-
-  place(hourRange("20-21", "00-01"), "amb2", pairs.first, true);
 
   config.prevNight.forEach((id) => {
     if (active.includes(id) && !config.draftees.includes(id)) place(hourRange("08-09", "10-11"), "rest", [id], true);
@@ -224,8 +311,10 @@ function generateRoster() {
     }
   });
 
-  applyTrainingHour(active);
+  fillAmbulanceCoverage(active, config);
   fillDeskCoverage(active, config);
+  fillStandby(active);
+  applyTrainingHour(active);
   fillStandby(active);
   renderRoster();
   validateRoster();
@@ -323,12 +412,39 @@ function validateRoster() {
   });
 
   COLUMNS.filter((col) => col.kind === "amb").forEach((col) => {
+    const requiredRows = new Set(ambulanceRequiredRows(col.id, config.active, config));
     roster.forEach((row, rowIndex) => {
       const ids = parseIds(row[col.id]);
+      if (col.id === "amb2" && !requiredRows.has(rowIndex) && ids.length) {
+        issues.push({ level: "warn", text: `${HOURS[rowIndex]} 非救護2車必要時段，請確認是否仍需編排。`, row: rowIndex, col: col.id });
+      }
+      if (col.id === "amb1" && ids.length !== 2) {
+        issues.push({ level: "error", text: `${HOURS[rowIndex]} 救護1車須編排 2 人。`, row: rowIndex, col: col.id });
+      }
+      if (ids.length === 1) {
+        issues.push({ level: "error", text: `${HOURS[rowIndex]} ${col.label} 若編排須為 2 人。`, row: rowIndex, col: col.id });
+      }
+      if (ids.length > 2) {
+        issues.push({ level: "error", text: `${HOURS[rowIndex]} ${col.label} 不可超過 2 人。`, row: rowIndex, col: col.id });
+      }
       if (ids.length >= 2) {
         const femaleCount = ids.filter((id) => config.females.includes(id)).length;
         if (femaleCount > 1) issues.push({ level: "error", text: `${HOURS[rowIndex]} ${col.label} 出現女性互搭。`, row: rowIndex, col: col.id });
       }
+      if (col.id === "amb1") {
+        const boss = ids.find((id) => config.bosses.includes(id));
+        if (boss) issues.push({ level: "warn", text: `${HOURS[rowIndex]} 主管原則上不編排救護1車。`, row: rowIndex, col: col.id });
+      }
+    });
+  });
+
+  config.active.forEach((id) => {
+    ["amb1", "amb2"].forEach((column) => {
+      const label = COLUMNS.find((col) => col.id === column).label;
+      ambulanceRunsFor(id, column).forEach((run) => {
+        if (run.length === 1) issues.push({ level: "warn", text: `${id} ${label} ${HOURS[run.start]} 僅 1 小時，原則上至少 2 小時。` });
+        if (run.length > 4) issues.push({ level: "error", text: `${id} ${label} 連續超過 4 小時。` });
+      });
     });
   });
 
@@ -346,20 +462,26 @@ function validateRoster() {
     if (!parseIds(row.desk).length) issues.push({ level: "error", text: `${HOURS[rowIndex]} 值班欄需至少 1 人。`, row: rowIndex, col: "desk" });
   });
 
-  const nightAmb1 = uniqueIds(hourRange("00-01", "08-09").flatMap((row) => parseIds(roster[row].amb1)));
+  const nightAmb1People = uniqueIds(hourRange("00-01", "08-09").flatMap((row) => parseIds(roster[row].amb1)));
   const dayWorkRows = hourRange("08-09", "22-23");
-  nightAmb1.forEach((id) => {
+  nightAmb1People.forEach((id) => {
     const dayWork = dayWorkRows.reduce((total, row) => {
       return total + COLUMNS.filter((col) => !["rest", "standby"].includes(col.id)).some((col) => parseIds(roster[row][col.id]).includes(id));
     }, 0);
     if (dayWork < 2) issues.push({ level: "warn", text: `${id} 深夜一車人員日間實際勤務未達 2 小時。` });
   });
 
-  hourRange("20-21", "00-01").forEach((row) => {
-    const amb2 = parseIds(roster[row].amb2);
-    if (nightAmb1.length && !nightAmb1.every((id) => amb2.includes(id))) {
-      issues.push({ level: "error", text: `${HOURS[row]} 救護2車應安排深夜救護1車人員。`, row, col: "amb2" });
-    }
+  const transitionChecks = [
+    { rows: hourRange("20-21", "22-23"), target: parseIds(roster[HOURS.indexOf("02-03")].amb1) },
+    { rows: hourRange("22-23", "00-01"), target: parseIds(roster[HOURS.indexOf("00-01")].amb1) }
+  ];
+  transitionChecks.forEach(({ rows, target }) => {
+    rows.forEach((row) => {
+      const amb2 = parseIds(roster[row].amb2);
+      if (amb2.length && target.length && !target.every((id) => amb2.includes(id))) {
+        issues.push({ level: "error", text: `${HOURS[row]} 救護2車應銜接深夜救護1車人員。`, row, col: "amb2" });
+      }
+    });
   });
 
   const seniorMentors = config.active.filter((id) => !config.bosses.includes(id) && !config.draftees.includes(id) && !config.rookies.includes(id));
@@ -433,6 +555,24 @@ function maxConsecutive(id, column) {
     }
   });
   return max;
+}
+
+function ambulanceRunsFor(id, column) {
+  const runs = [];
+  let current = 0;
+  let start = 0;
+  roster.forEach((row, rowIndex) => {
+    const onAmbulance = parseIds(row[column]).includes(id);
+    if (onAmbulance) {
+      if (!current) start = rowIndex;
+      current += 1;
+    } else if (current) {
+      runs.push({ start, length: current });
+      current = 0;
+    }
+  });
+  if (current) runs.push({ start, length: current });
+  return runs;
 }
 
 function renderIssues(issues) {
