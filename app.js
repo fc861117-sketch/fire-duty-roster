@@ -135,6 +135,46 @@ function pickPairs(candidates, females, bosses) {
   return { first, second };
 }
 
+function busyIdsAt(rowIndex, ignoredColumns = []) {
+  const busy = new Set();
+  COLUMNS.filter((col) => !ignoredColumns.includes(col.id)).forEach((col) => {
+    parseIds(roster[rowIndex][col.id]).forEach((id) => busy.add(id));
+  });
+  return busy;
+}
+
+function availableFrom(rowIndex, pools) {
+  const busy = busyIdsAt(rowIndex, ["desk", "standby"]);
+  return uniqueIds(pools.flat()).find((id) => id && !busy.has(id));
+}
+
+function applyTrainingHour(active) {
+  const row = HOURS.indexOf("16-17");
+  const busy = busyIdsAt(row, ["training", "standby"]);
+  const trainees = active.filter((id) => !busy.has(id));
+  if (trainees.length) place([row], "training", trainees, true);
+}
+
+function fillDeskCoverage(active, config) {
+  const supervisorRows = new Set([...hourRange("08-09", "10-11"), ...hourRange("20-21", "22-23")]);
+  const noDrafteeRows = new Set(hourRange("22-23", "06-07"));
+  const bosses = active.filter((id) => config.bosses.includes(id));
+  const draftees = active.filter((id) => config.draftees.includes(id));
+  const regulars = active.filter((id) => !config.bosses.includes(id) && !config.draftees.includes(id));
+  const nightRegulars = regulars.filter((id) => !config.rookies.includes(id));
+
+  roster.forEach((row, rowIndex) => {
+    if (parseIds(row.desk).length) return;
+    const pools = noDrafteeRows.has(rowIndex)
+      ? [nightRegulars, regulars]
+      : supervisorRows.has(rowIndex)
+      ? [bosses, regulars, draftees, active]
+      : [nightRegulars, regulars, draftees, active];
+    const staff = availableFrom(rowIndex, pools);
+    if (staff) place([rowIndex], "desk", [staff], true);
+  });
+}
+
 function generateRoster() {
   const config = getConfig();
   roster = makeBlankRoster();
@@ -143,8 +183,6 @@ function generateRoster() {
     alert("請先輸入今日上班人員。");
     return;
   }
-
-  place(hourRange("16-17", "18-19"), "training", active, true);
 
   const nightPool = active.filter((id) => !config.bosses.includes(id) && !config.draftees.includes(id));
   const pairs = pickPairs(nightPool, config.females, config.bosses);
@@ -155,19 +193,21 @@ function generateRoster() {
   const nightDesk = nightPool.find((id) => ![...pairs.first, ...pairs.second].includes(id)) || nightPool[0];
   if (nightDesk) place([...hourRange("22-23", "23-00"), ...hourRange("23-00", "00-01"), ...hourRange("00-01", "06-07")], "desk", [nightDesk], true);
 
-  place(hourRange("20-21", "00-01"), "amb1", pairs.second, true);
-  place(hourRange("22-23", "00-01"), "standby", pairs.first, true);
+  place(hourRange("20-21", "00-01"), "amb2", pairs.first, true);
 
   config.prevNight.forEach((id) => {
     if (active.includes(id) && !config.draftees.includes(id)) place(hourRange("08-09", "10-11"), "rest", [id], true);
   });
 
+  const seniorMentors = active.filter((id) => !config.bosses.includes(id) && !config.draftees.includes(id) && !config.rookies.includes(id));
   config.rookies.forEach((id) => {
-    if (active.includes(id)) place(hourRange("10-11", "12-13"), "training", [id], true);
+    if (!active.includes(id)) return;
+    const mentor = seniorMentors.find((staff) => staff !== id);
+    place(hourRange("10-11", "12-13"), "training", [id, mentor].filter(Boolean), true);
   });
 
   config.draftees.forEach((id) => {
-    if (active.includes(id)) place([...hourRange("08-09", "12-13"), ...hourRange("13-14", "16-17"), ...hourRange("18-19", "21-22")], "desk", [id], true);
+    if (active.includes(id)) place([...hourRange("10-11", "14-15"), ...hourRange("16-17", "20-21"), ...hourRange("06-07", "08-09")], "desk", [id], true);
   });
 
   readExtraDuties().forEach((duty) => {
@@ -179,11 +219,13 @@ function generateRoster() {
     if (config.draftees.includes(id)) return;
     const hasRest = roster.some((row) => parseIds(row.rest).includes(id));
     if (!hasRest) {
-      const target = config.leaveStaff.includes(id) ? "14-15" : "12-13";
+      const target = config.leaveStaff.includes(id) ? "18-19" : "12-13";
       place(hourRange(target, HOURS[HOURS.indexOf(target) + 2]), "rest", [id], true);
     }
   });
 
+  applyTrainingHour(active);
+  fillDeskCoverage(active, config);
   fillStandby(active);
   renderRoster();
   validateRoster();
@@ -257,15 +299,14 @@ function validateRoster() {
     if (config.draftees.includes(id)) {
       const deskHours = stats[id]?.desk || 0;
       if (deskHours !== 10) issues.push({ level: "warn", text: `${id} 役男值班為 ${deskHours} 小時，規範需 10 小時。` });
-      if (maxConsecutive(id, "desk") > 4) issues.push({ level: "error", text: `${id} 役男連續值班超過 4 小時。` });
     }
   });
 
-  hourRange("16-17", "18-19").forEach((row) => {
-    if (parseIds(roster[row].rest).length) issues.push({ level: "error", text: `${HOURS[row]} 全隊訓練時段不得排休息。`, row, col: "rest" });
+  hourRange("16-17", "17-18").forEach((row) => {
+    if (parseIds(roster[row].rest).length) issues.push({ level: "error", text: `${HOURS[row]} 訓練時段不得排休息。`, row, col: "rest" });
   });
 
-  hourRange("22-23", "08-09").forEach((row) => {
+  hourRange("22-23", "06-07").forEach((row) => {
     if (parseIds(roster[row]?.rest).length) issues.push({ level: "error", text: `${HOURS[row]} 深夜核心勤務不得排休息。`, row, col: "rest" });
   });
 
@@ -287,17 +328,22 @@ function validateRoster() {
       if (ids.length >= 2) {
         const femaleCount = ids.filter((id) => config.females.includes(id)).length;
         if (femaleCount > 1) issues.push({ level: "error", text: `${HOURS[rowIndex]} ${col.label} 出現女性互搭。`, row: rowIndex, col: col.id });
-        if (femaleCount === 0) issues.push({ level: "warn", text: `${HOURS[rowIndex]} ${col.label} 未符合一男一女建議。`, row: rowIndex, col: col.id });
       }
     });
   });
 
   const nightCols = ["desk", "amb1", "amb2"];
-  hourRange("22-23", "08-09").forEach((row) => {
+  hourRange("22-23", "06-07").forEach((row) => {
     nightCols.forEach((col) => {
       const boss = parseIds(roster[row]?.[col]).find((id) => config.bosses.includes(id));
       if (boss) issues.push({ level: "error", text: `${boss} 主管不得編排深夜勤務。`, row, col });
     });
+    const draftee = parseIds(roster[row]?.desk).find((id) => config.draftees.includes(id));
+    if (draftee) issues.push({ level: "error", text: `${draftee} 役男不可排 22-06 值宿。`, row, col: "desk" });
+  });
+
+  roster.forEach((row, rowIndex) => {
+    if (!parseIds(row.desk).length) issues.push({ level: "error", text: `${HOURS[rowIndex]} 值班欄需至少 1 人。`, row: rowIndex, col: "desk" });
   });
 
   const nightAmb1 = uniqueIds(hourRange("00-01", "08-09").flatMap((row) => parseIds(roster[row].amb1)));
@@ -309,24 +355,24 @@ function validateRoster() {
     if (dayWork < 2) issues.push({ level: "warn", text: `${id} 深夜一車人員日間實際勤務未達 2 小時。` });
   });
 
-  const nightAmb2 = uniqueIds(hourRange("00-01", "08-09").flatMap((row) => parseIds(roster[row].amb2)));
   hourRange("20-21", "00-01").forEach((row) => {
-    const amb1 = parseIds(roster[row].amb1);
-    if (nightAmb2.length && !nightAmb2.every((id) => amb1.includes(id))) {
-      issues.push({ level: "error", text: `${HOURS[row]} 救護1車應由深夜二車人員預熱。`, row, col: "amb1" });
+    const amb2 = parseIds(roster[row].amb2);
+    if (nightAmb1.length && !nightAmb1.every((id) => amb2.includes(id))) {
+      issues.push({ level: "error", text: `${HOURS[row]} 救護2車應安排深夜救護1車人員。`, row, col: "amb2" });
     }
   });
 
-  hourRange("22-23", "00-01").forEach((row) => {
-    const amb1 = parseIds(roster[row].amb1);
-    if (amb1.some((id) => nightAmb1.includes(id))) {
-      issues.push({ level: "error", text: `${HOURS[row]} 深夜一車人員不得再排救護1車。`, row, col: "amb1" });
-    }
-  });
-
+  const seniorMentors = config.active.filter((id) => !config.bosses.includes(id) && !config.draftees.includes(id) && !config.rookies.includes(id));
   config.rookies.forEach((id) => {
-    if (config.active.includes(id) && (stats[id]?.training || 0) < 2) {
-      issues.push({ level: "warn", text: `${id} 訓練未達 2 小時。` });
+    if (!config.active.includes(id)) return;
+    const ledTrainingHours = roster.reduce((total, row) => {
+      const trainingIds = parseIds(row.training);
+      const hasRookie = trainingIds.includes(id);
+      const hasMentor = seniorMentors.some((mentor) => trainingIds.includes(mentor));
+      return total + (hasRookie && hasMentor ? 1 : 0);
+    }, 0);
+    if (ledTrainingHours < 2) {
+      issues.push({ level: "warn", text: `${id} 需由資深同仁帶領訓練至少 2 小時。` });
     }
   });
 
@@ -545,7 +591,7 @@ function loadSample() {
     bosses: "01,02,03",
     females: "06,09,17",
     rookies: "09,13,15",
-    draftees: "18,19,20",
+    draftees: "19,20",
     leaveStaff: "07,12"
   });
   $("extraDutyList").innerHTML = "";
@@ -559,7 +605,7 @@ function clearAll() {
   localStorage.removeItem("fire-duty-roster");
   roster = makeBlankRoster();
   $("extraDutyList").innerHTML = "";
-  applyInputs({ dutyUnit: "湖口分隊", dutyDate: "", activeStaff: "", prevNightStaff: "", bosses: "01,02,03", females: "06,09,17", rookies: "09,13,15", draftees: "18,19,20", leaveStaff: "" });
+  applyInputs({ dutyUnit: "湖口分隊", dutyDate: "", activeStaff: "", prevNightStaff: "", bosses: "01,02,03", females: "06,09,17", rookies: "09,13,15", draftees: "19,20", leaveStaff: "" });
   addExtraDuty();
   renderRoster();
   validateRoster();
