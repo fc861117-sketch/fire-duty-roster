@@ -102,15 +102,23 @@ const scenarios = [
   }),
   runScenario("seven-plus with two supervisors", {
     activeStaff: "01,02,04,05,06,07,08,09,10,12,13,15,17,18,19,20",
-    leaveStaff: ""
+    leaveStaff: "02"
   })
 ];
+
+const missingSupervisorLeave = runScenario("two supervisors without leave entry", {
+  activeStaff: "01,02,04,05,06,07,08,09,10,12,13,15,17,18,19,20",
+  leaveStaff: ""
+});
 
 const failed = scenarios.filter((item) => {
   return item.errors.length || item.awayBad.length || item.amb1Bad.length || item.deskBad.length;
 });
 
-console.log(JSON.stringify(scenarios, null, 2));
-if (failed.length) {
+const expectedSupervisorLeaveError = missingSupervisorLeave.errors.some((text) => text.includes("需有 1 位主管外宿"));
+const supervisorLeaveWasNotAutoFilled = missingSupervisorLeave.leaveStaff.length === 0;
+
+console.log(JSON.stringify({ scenarios, missingSupervisorLeave }, null, 2));
+if (failed.length || !expectedSupervisorLeaveError || !supervisorLeaveWasNotAutoFilled) {
   process.exitCode = 1;
 }

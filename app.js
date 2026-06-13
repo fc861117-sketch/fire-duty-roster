@@ -156,14 +156,6 @@ function isAvailableAt(rowIndex, id, config) {
   return !(config.leaveStaff.includes(id) && isAwayHour(rowIndex));
 }
 
-function applySupervisorLeaveRule(config) {
-  const activeBosses = config.active.filter((id) => config.bosses.includes(id));
-  if (activeBosses.length >= 2 && !activeBosses.some((id) => config.leaveStaff.includes(id))) {
-    config.leaveStaff.push(activeBosses[activeBosses.length - 1]);
-    $("leaveStaff").value = idsToText(config.leaveStaff);
-  }
-}
-
 function ambulanceRunBefore(rowIndex, id, column) {
   let total = 0;
   for (let index = rowIndex - 1; index >= 0; index -= 1) {
@@ -369,7 +361,6 @@ function assignRestPeriods(active, config) {
 
 function generateRoster() {
   const config = getConfig();
-  applySupervisorLeaveRule(config);
   roster = makeBlankRoster();
   const active = config.active;
   if (!active.length) {
