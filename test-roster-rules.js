@@ -91,7 +91,12 @@ function runScenario(name, inputs) {
     const deskBad = roster
       .map((row, index) => parse(row.desk).length ? null : HOURS[index])
       .filter(Boolean);
-    return { name: ${JSON.stringify(name)}, errors, awayBad, amb1Bad, deskBad, leaveStaff: config.leaveStaff };
+    const activeDraftees = config.active.filter((id) => config.draftees.includes(id));
+    const drafteeHours = Object.fromEntries(activeDraftees.map((id) => {
+      return [id, roster.filter((row) => parse(row.desk).includes(id)).length];
+    }));
+    const drafteeOverLimit = activeDraftees.filter((id) => drafteeHours[id] > (activeDraftees.length >= 2 ? 8 : 10));
+    return { name: ${JSON.stringify(name)}, errors, awayBad, amb1Bad, deskBad, leaveStaff: config.leaveStaff, drafteeHours, drafteeOverLimit };
   })()`, context);
 }
 
@@ -112,7 +117,7 @@ const missingSupervisorLeave = runScenario("two supervisors without leave entry"
 });
 
 const failed = scenarios.filter((item) => {
-  return item.errors.length || item.awayBad.length || item.amb1Bad.length || item.deskBad.length;
+  return item.errors.length || item.awayBad.length || item.amb1Bad.length || item.deskBad.length || item.drafteeOverLimit.length;
 });
 
 const expectedSupervisorLeaveError = missingSupervisorLeave.errors.some((text) => text.includes("需有 1 位主管外宿"));

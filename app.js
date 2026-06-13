@@ -301,21 +301,36 @@ function applyTrainingHour(active) {
 }
 
 function fillDeskCoverage(active, config) {
-  const supervisorRows = new Set([...hourRange("08-09", "10-11"), ...hourRange("20-21", "22-23")]);
   const noDrafteeRows = new Set(hourRange("22-23", "06-07"));
   const bosses = active.filter((id) => config.bosses.includes(id));
   const draftees = active.filter((id) => config.draftees.includes(id));
   const regulars = active.filter((id) => !config.bosses.includes(id) && !config.draftees.includes(id));
   const nightRegulars = regulars.filter((id) => !config.rookies.includes(id));
+  const drafteeTarget = draftees.length >= 2 ? 8 : 10;
+  const deskHours = (id) => roster.filter((row) => parseIds(row.desk).includes(id)).length;
+  const pickDeskStaff = (rowIndex) => {
+    const busy = busyIdsAt(rowIndex, ["desk", "standby"]);
+    const available = (ids) => ids.filter((id) => !busy.has(id) && isAvailableAt(rowIndex, id, config));
+    if (!noDrafteeRows.has(rowIndex)) {
+      const draftee = available(draftees)
+        .filter((id) => deskHours(id) < drafteeTarget)
+        .sort((a, b) => deskHours(a) - deskHours(b) || a.localeCompare(b))[0];
+      if (draftee) return draftee;
+    }
+    if (noDrafteeRows.has(rowIndex)) {
+      const nightRegular = available(nightRegulars)[0] || available(regulars)[0];
+      if (nightRegular) return nightRegular;
+    }
+    const boss = available(bosses)[0];
+    if (boss) return boss;
+    const regular = available(regulars)[0];
+    if (regular) return regular;
+    return available(active)[0];
+  };
 
   roster.forEach((row, rowIndex) => {
     if (parseIds(row.desk).length) return;
-    const pools = noDrafteeRows.has(rowIndex)
-      ? [nightRegulars, regulars]
-      : supervisorRows.has(rowIndex)
-      ? [bosses, regulars, draftees, active]
-      : [nightRegulars, regulars, draftees, active];
-    const staff = availableFrom(rowIndex, pools, config);
+    const staff = pickDeskStaff(rowIndex);
     if (staff) place([rowIndex], "desk", [staff], true);
   });
 }
@@ -377,10 +392,6 @@ function generateRoster() {
     if (!active.includes(id)) return;
     const mentor = seniorMentors.find((staff) => staff !== id);
     place(hourRange("10-11", "12-13"), "training", [id, mentor].filter(Boolean), true);
-  });
-
-  config.draftees.forEach((id) => {
-    if (active.includes(id)) place([...hourRange("10-11", "14-15"), ...hourRange("16-17", "20-21"), ...hourRange("06-07", "08-09")], "desk", [id], true);
   });
 
   readExtraDuties().forEach((duty) => {
@@ -465,7 +476,10 @@ function validateRoster() {
     }
     if (config.draftees.includes(id)) {
       const deskHours = stats[id]?.desk || 0;
-      if (deskHours !== 10) issues.push({ level: "warn", text: `${id} 役男值班為 ${deskHours} 小時，規範需 10 小時。` });
+      const activeDraftees = config.active.filter((staff) => config.draftees.includes(staff));
+      const limit = activeDraftees.length >= 2 ? 8 : 10;
+      if (deskHours > limit) issues.push({ level: "error", text: `${id} 役男值班為 ${deskHours} 小時，超過上限 ${limit} 小時。` });
+      if (activeDraftees.length >= 2 && deskHours < 8) issues.push({ level: "warn", text: `${id} 役男值班為 ${deskHours} 小時，兩位役男上班時原則為每人 8 小時。` });
     }
   });
 
