@@ -52,8 +52,7 @@ function getConfig() {
     females: parseIds($("females").value),
     rookies: parseIds($("rookies").value),
     draftees: parseIds($("draftees").value),
-    leaveStaff: parseIds($("leaveStaff").value),
-    watchStaff: parseIds($("watchStaff").value)
+    leaveStaff: parseIds($("leaveStaff").value)
   };
 }
 
@@ -153,8 +152,8 @@ function generateRoster() {
   place(nightRows, "amb1", pairs.first, true);
   place(nightRows, "amb2", pairs.second, true);
 
-  const watch = config.watchStaff[0] || nightPool.find((id) => ![...pairs.first, ...pairs.second].includes(id)) || nightPool[0];
-  if (watch) place([...hourRange("22-23", "23-00"), ...hourRange("23-00", "00-01"), ...hourRange("00-01", "06-07")], "desk", [watch], true);
+  const nightDesk = nightPool.find((id) => ![...pairs.first, ...pairs.second].includes(id)) || nightPool[0];
+  if (nightDesk) place([...hourRange("22-23", "23-00"), ...hourRange("23-00", "00-01"), ...hourRange("00-01", "06-07")], "desk", [nightDesk], true);
 
   place(hourRange("20-21", "00-01"), "amb1", pairs.second, true);
   place(hourRange("22-23", "00-01"), "standby", pairs.first, true);
@@ -327,7 +326,7 @@ function validateRoster() {
 
   config.rookies.forEach((id) => {
     if (config.active.includes(id) && (stats[id]?.training || 0) < 2) {
-      issues.push({ level: "warn", text: `${id} 新人訓練未達 2 小時。` });
+      issues.push({ level: "warn", text: `${id} 訓練未達 2 小時。` });
     }
   });
 
@@ -497,8 +496,7 @@ function collectInputs() {
     females: $("females").value,
     rookies: $("rookies").value,
     draftees: $("draftees").value,
-    leaveStaff: $("leaveStaff").value,
-    watchStaff: $("watchStaff").value
+    leaveStaff: $("leaveStaff").value
   };
 }
 
@@ -548,8 +546,7 @@ function loadSample() {
     females: "06,09,17",
     rookies: "09,13,15",
     draftees: "18,19,20",
-    leaveStaff: "07,12",
-    watchStaff: ""
+    leaveStaff: "07,12"
   });
   $("extraDutyList").innerHTML = "";
   addExtraDuty({ type: "inspection", start: "10-11", end: "12-13", staff: "07,12" });
@@ -562,7 +559,7 @@ function clearAll() {
   localStorage.removeItem("fire-duty-roster");
   roster = makeBlankRoster();
   $("extraDutyList").innerHTML = "";
-  applyInputs({ dutyUnit: "湖口分隊", dutyDate: "", activeStaff: "", prevNightStaff: "", bosses: "01,02,03", females: "06,09,17", rookies: "09,13,15", draftees: "18,19,20", leaveStaff: "", watchStaff: "" });
+  applyInputs({ dutyUnit: "湖口分隊", dutyDate: "", activeStaff: "", prevNightStaff: "", bosses: "01,02,03", females: "06,09,17", rookies: "09,13,15", draftees: "18,19,20", leaveStaff: "" });
   addExtraDuty();
   renderRoster();
   validateRoster();
@@ -850,7 +847,7 @@ $("importJsonInput").addEventListener("change", (event) => {
   if (file) importJson(file);
 });
 
-["dutyUnit", "dutyDate", "activeStaff", "prevNightStaff", "bosses", "females", "rookies", "draftees", "leaveStaff", "watchStaff"].forEach((id) => {
+["dutyUnit", "dutyDate", "activeStaff", "prevNightStaff", "bosses", "females", "rookies", "draftees", "leaveStaff"].forEach((id) => {
   $(id).addEventListener("input", persist);
 });
 $("activeStaff").addEventListener("change", syncStaffPickerFromText);
