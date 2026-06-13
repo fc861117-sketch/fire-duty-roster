@@ -168,25 +168,40 @@ function ambulanceRequiredRows(column, active, config) {
   return HOURS.map((_, index) => index);
 }
 
+function ambulanceWorkload(id) {
+  return roster.reduce((total, row) => {
+    return total + (parseIds(row.amb1).includes(id) ? 1 : 0) + (parseIds(row.amb2).includes(id) ? 1 : 0);
+  }, 0);
+}
+
+function ambulanceChunkSize(column, startRow) {
+  const hour = HOURS[startRow];
+  if (hour === "00-01") return 8;
+  if (column === "amb2") return 2;
+  return 4;
+}
+
 function pickAmbulancePair(rowIndexes, column, active, config, recentPairs = []) {
   const rows = rowIndexes.filter((rowIndex) => rowIndex >= 0);
   const busy = new Set(rows.flatMap((rowIndex) => [...busyIdsAt(rowIndex, [column, "standby"])]));
-  const nightRows = new Set(hourRange("22-23", "06-07"));
+  const nightRows = new Set(hourRange("22-23", "00-01"));
   const isNight = rows.some((rowIndex) => nightRows.has(rowIndex));
   const chunkLength = rows.length;
   const base = active.filter((id) => {
     return !config.draftees.includes(id)
       && !busy.has(id)
-      && ambulanceRunBefore(rows[0], id, column) + chunkLength <= 4;
+      && (rows[0] === HOURS.indexOf("00-01") || ambulanceRunBefore(rows[0], id, column) + chunkLength <= 4);
   });
   const preferred = base.filter((id) => {
     if (isNight && config.bosses.includes(id)) return false;
     if (column === "amb1" && config.bosses.includes(id)) return false;
     return true;
   });
-  const fallback = base.filter((id) => !preferred.includes(id));
-  const pool = [...preferred, ...fallback].filter((id) => !recentPairs.includes(id));
-  const extendedPool = pool.length >= 2 ? pool : [...preferred, ...fallback];
+  const sortByLoad = (ids) => ids.slice().sort((a, b) => ambulanceWorkload(a) - ambulanceWorkload(b) || a.localeCompare(b));
+  const preferredSorted = sortByLoad(preferred);
+  const fallback = sortByLoad(base.filter((id) => !preferred.includes(id)));
+  const pool = [...preferredSorted, ...fallback].filter((id) => !recentPairs.includes(id));
+  const extendedPool = pool.length >= 2 ? pool : [...preferredSorted, ...fallback];
   const males = extendedPool.filter((id) => !config.females.includes(id));
   const females = extendedPool.filter((id) => config.females.includes(id));
   const pair = [males[0], females[0]].filter(Boolean);
@@ -198,10 +213,18 @@ function pickAmbulancePair(rowIndexes, column, active, config, recentPairs = [])
 
 function fillAmbulanceColumn(column, rows, active, config, preferredByRow = new Map()) {
   let lastPair = [];
-  for (let index = 0; index < rows.length; index += 2) {
-    const chunk = rows.slice(index, index + 2);
-    if (chunk.length < 2) continue;
-    if (chunk.every((rowIndex) => parseIds(roster[rowIndex][column]).length === 2)) continue;
+  for (let index = 0; index < rows.length;) {
+    let chunkSize = ambulanceChunkSize(column, rows[index]);
+    let chunk = rows.slice(index, index + chunkSize);
+    if (chunk.length < chunkSize && column === "amb1") chunk = rows.slice(index, index + 2);
+    if (chunk.length < 2) {
+      index += Math.max(chunk.length, 1);
+      continue;
+    }
+    if (chunk.every((rowIndex) => parseIds(roster[rowIndex][column]).length === 2)) {
+      index += chunk.length;
+      continue;
+    }
     const preferred = uniqueIds(chunk.flatMap((rowIndex) => preferredByRow.get(rowIndex) || []));
     let pair = [];
     if (preferred.length >= 2) {
@@ -210,7 +233,7 @@ function fillAmbulanceColumn(column, rows, active, config, preferredByRow = new 
         return active.includes(id)
           && !config.draftees.includes(id)
           && !busy.has(id)
-          && ambulanceRunBefore(chunk[0], id, column) + chunk.length <= 4;
+          && (chunk[0] === HOURS.indexOf("00-01") || ambulanceRunBefore(chunk[0], id, column) + chunk.length <= 4);
       }).slice(0, 2);
       if (pair.filter((id) => config.females.includes(id)).length > 1) pair = [];
     }
@@ -219,6 +242,7 @@ function fillAmbulanceColumn(column, rows, active, config, preferredByRow = new 
       place(chunk, column, pair, true);
       lastPair = pair;
     }
+    index += chunk.length;
   }
 }
 
@@ -429,7 +453,9 @@ function validateRoster() {
       }
       if (ids.length >= 2) {
         const femaleCount = ids.filter((id) => config.females.includes(id)).length;
+        const bossCount = ids.filter((id) => config.bosses.includes(id)).length;
         if (femaleCount > 1) issues.push({ level: "error", text: `${HOURS[rowIndex]} ${col.label} 出現女性互搭。`, row: rowIndex, col: col.id });
+        if (bossCount > 1) issues.push({ level: "error", text: `${HOURS[rowIndex]} 主管不得同時編排同車救護勤務。`, row: rowIndex, col: col.id });
       }
       if (col.id === "amb1") {
         const boss = ids.find((id) => config.bosses.includes(id));
@@ -442,11 +468,27 @@ function validateRoster() {
     ["amb1", "amb2"].forEach((column) => {
       const label = COLUMNS.find((col) => col.id === column).label;
       ambulanceRunsFor(id, column).forEach((run) => {
+        const nightException = run.start === HOURS.indexOf("00-01") && run.length === 8;
         if (run.length === 1) issues.push({ level: "warn", text: `${id} ${label} ${HOURS[run.start]} 僅 1 小時，原則上至少 2 小時。` });
-        if (run.length > 4) issues.push({ level: "error", text: `${id} ${label} 連續超過 4 小時。` });
+        if (column === "amb1" && !nightException && ![2, 4].includes(run.length)) {
+          issues.push({ level: "warn", text: `${id} 救護1車 ${HOURS[run.start]} 連續 ${run.length} 小時，原則上以 4 小時為主，可調整為 2 小時。` });
+        }
+        if (run.length > 4 && !nightException) issues.push({ level: "error", text: `${id} ${label} 連續超過 4 小時。` });
       });
     });
   });
+
+  const ambulanceLoadTargets = config.active.filter((id) => !config.bosses.includes(id) && !config.draftees.includes(id));
+  const ambulanceLoads = ambulanceLoadTargets.map((id) => ({ id, load: ambulanceWorkload(id) }));
+  if (ambulanceLoads.length) {
+    const maxLoad = Math.max(...ambulanceLoads.map((item) => item.load));
+    const minLoad = Math.min(...ambulanceLoads.map((item) => item.load));
+    if (maxLoad - minLoad > 4) {
+      const high = ambulanceLoads.filter((item) => item.load === maxLoad).map((item) => item.id).join(",");
+      const low = ambulanceLoads.filter((item) => item.load === minLoad).map((item) => item.id).join(",");
+      issues.push({ level: "warn", text: `救護勤務量差距 ${maxLoad - minLoad} 小時，偏高：${high}，偏低：${low}。` });
+    }
+  }
 
   const nightCols = ["desk", "amb1", "amb2"];
   hourRange("22-23", "06-07").forEach((row) => {
