@@ -498,13 +498,7 @@ function collectInputs() {
     rookies: $("rookies").value,
     draftees: $("draftees").value,
     leaveStaff: $("leaveStaff").value,
-    watchStaff: $("watchStaff").value,
-    summaryDutyRest: $("summaryDutyRest").value,
-    summaryLeave: $("summaryLeave").value,
-    summaryCompRest: $("summaryCompRest").value,
-    summaryVacation: $("summaryVacation").value,
-    summarySleep: $("summarySleep").value,
-    summarySickLeave: $("summarySickLeave").value
+    watchStaff: $("watchStaff").value
   };
 }
 
@@ -555,13 +549,7 @@ function loadSample() {
     rookies: "09,13,15",
     draftees: "18,19,20",
     leaveStaff: "07,12",
-    watchStaff: "",
-    summaryDutyRest: "03,05,06,07,11,14,20",
-    summaryLeave: "01",
-    summaryCompRest: "08,15",
-    summaryVacation: "09",
-    summarySleep: "",
-    summarySickLeave: "04"
+    watchStaff: ""
   });
   $("extraDutyList").innerHTML = "";
   addExtraDuty({ type: "inspection", start: "10-11", end: "12-13", staff: "07,12" });
@@ -574,7 +562,7 @@ function clearAll() {
   localStorage.removeItem("fire-duty-roster");
   roster = makeBlankRoster();
   $("extraDutyList").innerHTML = "";
-  applyInputs({ dutyUnit: "湖口分隊", dutyDate: "", activeStaff: "", prevNightStaff: "", bosses: "01,02,03", females: "06,09,17", rookies: "09,13,15", draftees: "18,19,20", leaveStaff: "", watchStaff: "", summaryDutyRest: "", summaryLeave: "", summaryCompRest: "", summaryVacation: "", summarySleep: "", summarySickLeave: "" });
+  applyInputs({ dutyUnit: "湖口分隊", dutyDate: "", activeStaff: "", prevNightStaff: "", bosses: "01,02,03", females: "06,09,17", rookies: "09,13,15", draftees: "18,19,20", leaveStaff: "", watchStaff: "" });
   addExtraDuty();
   renderRoster();
   validateRoster();
@@ -862,7 +850,7 @@ $("importJsonInput").addEventListener("change", (event) => {
   if (file) importJson(file);
 });
 
-["dutyUnit", "dutyDate", "activeStaff", "prevNightStaff", "bosses", "females", "rookies", "draftees", "leaveStaff", "watchStaff", "summaryDutyRest", "summaryLeave", "summaryCompRest", "summaryVacation", "summarySleep", "summarySickLeave"].forEach((id) => {
+["dutyUnit", "dutyDate", "activeStaff", "prevNightStaff", "bosses", "females", "rookies", "draftees", "leaveStaff", "watchStaff"].forEach((id) => {
   $(id).addEventListener("input", persist);
 });
 $("activeStaff").addEventListener("change", syncStaffPickerFromText);
