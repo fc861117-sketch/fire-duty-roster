@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fire Duty Roster | 消防分隊勤務自動排班</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">Fire Duty Roster</p>
+      <h1>消防分隊勤務自動排班</h1>
+    </div>
+    <div class="top-actions">
+      <button id="sampleBtn" class="ghost">帶入範例</button>
+      <button id="clearBtn" class="ghost danger">清空</button>
+      <button id="generateBtn" class="primary">自動生成</button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <section class="panel input-panel">
+      <div class="panel-title">
+        <h2>基本資料</h2>
+        <span id="saveState">尚未生成</span>
+      </div>
+
+      <label>
+        <span>今日上班人員</span>
+        <textarea id="activeStaff" rows="3" placeholder="例：01,02,04,05,06,07,08,09,10,12,13,15,17,18,19,20"></textarea>
+      </label>
+
+      <label>
+        <span>前一日深夜勤務人員</span>
+        <input id="prevNightStaff" type="text" placeholder="例：05,08,10,12,17">
+      </label>
+
+      <div class="field-grid">
+        <label>
+          <span>主管</span>
+          <input id="bosses" type="text" value="01,02,03">
+        </label>
+        <label>
+          <span>女性</span>
+          <input id="females" type="text" value="06,09,17">
+        </label>
+        <label>
+          <span>新人</span>
+          <input id="rookies" type="text" value="09,13,15">
+        </label>
+        <label>
+          <span>役男</span>
+          <input id="draftees" type="text" value="18,19,20">
+        </label>
+        <label>
+          <span>外宿人員</span>
+          <input id="leaveStaff" type="text" placeholder="例：07,12">
+        </label>
+        <label>
+          <span>值宿指定</span>
+          <input id="watchStaff" type="text" placeholder="留空自動選">
+        </label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title">
+        <h2>其他勤務</h2>
+        <button id="addDutyBtn" class="small">新增勤務</button>
+      </div>
+      <div id="extraDutyList" class="extra-list"></div>
+    </section>
+
+    <section class="panel rule-panel">
+      <div class="panel-title">
+        <h2>校驗結果</h2>
+        <button id="validateBtn" class="small">重新校驗</button>
+      </div>
+      <div id="summary" class="summary"></div>
+      <ol id="issues" class="issues"></ol>
+    </section>
+
+    <section class="table-shell">
+      <div class="table-toolbar">
+        <div>
+          <h2>勤務表</h2>
+          <p>每格可直接輸入員編，多人用逗號分隔。</p>
+        </div>
+        <div class="top-actions">
+          <button id="exportCsvBtn" class="ghost">匯出 CSV</button>
+          <button id="exportJsonBtn" class="ghost">備份 JSON</button>
+          <label class="import-btn">
+            匯入 JSON
+            <input id="importJsonInput" type="file" accept="application/json">
+          </label>
+        </div>
+      </div>
+      <div class="roster-wrap">
+        <table id="rosterTable" aria-label="消防勤務表">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel stats-panel">
+      <div class="panel-title">
+        <h2>人員時數</h2>
+        <span>依目前表格即時計算</span>
+      </div>
+      <div id="statsTable" class="stats-table"></div>
+    </section>
+
+    <section class="panel sheet-panel">
+      <div class="panel-title">
+        <h2>深夜勤平均統計</h2>
+        <button id="loadSheetBtn" class="small">讀取試算表</button>
+      </div>
+      <label>
+        <span>Google 試算表連結或 CSV 連結</span>
+        <input id="sheetUrl" type="url" placeholder="貼上 Google Sheets 分享連結或 publish CSV 連結">
+      </label>
+      <div class="field-grid">
+        <label>
+          <span>工作表 gid</span>
+          <input id="sheetGid" type="text" placeholder="留空使用網址 gid 或第一個工作表">
+        </label>
+        <label>
+          <span>深夜勤關鍵字</span>
+          <input id="nightKeywords" type="text" value="深夜,00-08,0-8,值宿,救護1車,救護2車,救護一車,救護二車">
+        </label>
+      </div>
+      <div class="field-grid">
+        <label>
+          <span>日期欄</span>
+          <select id="dateColumn"></select>
+        </label>
+        <label>
+          <span>月份</span>
+          <select id="monthFilter"></select>
+        </label>
+        <label>
+          <span>人員欄</span>
+          <select id="personColumn"></select>
+        </label>
+        <label>
+          <span>勤務欄</span>
+          <select id="dutyColumn"></select>
+        </label>
+      </div>
+      <button id="analyzeNightBtn" class="primary sheet-action">產生統計</button>
+      <p id="sheetStatus" class="sheet-status">尚未讀取。此功能只讀資料，不會編輯雲端試算表。</p>
+      <div id="nightSummary" class="summary"></div>
+      <div id="priorityList" class="priority-list"></div>
+      <div id="nightStatsTable" class="night-table"></div>
+    </section>
+  </main>
+
+  <template id="extraDutyTemplate">
+    <div class="extra-duty">
+      <select class="extra-type"></select>
+      <select class="extra-start"></select>
+      <select class="extra-end"></select>
+      <input class="extra-staff" type="text" placeholder="員編，如 07,12">
+      <button class="icon remove-duty" title="移除">×</button>
+    </div>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>
