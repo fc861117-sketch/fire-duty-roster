@@ -143,9 +143,25 @@ function busyIdsAt(rowIndex, ignoredColumns = []) {
   return busy;
 }
 
-function availableFrom(rowIndex, pools) {
+function availableFrom(rowIndex, pools, config = getConfig()) {
   const busy = busyIdsAt(rowIndex, ["desk", "standby"]);
-  return uniqueIds(pools.flat()).find((id) => id && !busy.has(id));
+  return uniqueIds(pools.flat()).find((id) => id && !busy.has(id) && isAvailableAt(rowIndex, id, config));
+}
+
+function isAwayHour(rowIndex) {
+  return hourRange("20-21", "08-09").includes(rowIndex);
+}
+
+function isAvailableAt(rowIndex, id, config) {
+  return !(config.leaveStaff.includes(id) && isAwayHour(rowIndex));
+}
+
+function applySupervisorLeaveRule(config) {
+  const activeBosses = config.active.filter((id) => config.bosses.includes(id));
+  if (activeBosses.length >= 2 && !activeBosses.some((id) => config.leaveStaff.includes(id))) {
+    config.leaveStaff.push(activeBosses[activeBosses.length - 1]);
+    $("leaveStaff").value = idsToText(config.leaveStaff);
+  }
 }
 
 function ambulanceRunBefore(rowIndex, id, column) {
@@ -184,12 +200,13 @@ function ambulanceChunkSize(column, startRow) {
 function pickAmbulancePair(rowIndexes, column, active, config, recentPairs = []) {
   const rows = rowIndexes.filter((rowIndex) => rowIndex >= 0);
   const busy = new Set(rows.flatMap((rowIndex) => [...busyIdsAt(rowIndex, [column, "standby"])]));
-  const nightRows = new Set(hourRange("22-23", "00-01"));
+  const nightRows = new Set(hourRange("22-23", "06-07"));
   const isNight = rows.some((rowIndex) => nightRows.has(rowIndex));
   const chunkLength = rows.length;
   const base = active.filter((id) => {
     return !config.draftees.includes(id)
       && !busy.has(id)
+      && rows.every((rowIndex) => isAvailableAt(rowIndex, id, config))
       && (rows[0] === HOURS.indexOf("00-01") || ambulanceRunBefore(rows[0], id, column) + chunkLength <= 4);
   });
   const preferred = base.filter((id) => {
@@ -233,11 +250,28 @@ function fillAmbulanceColumn(column, rows, active, config, preferredByRow = new 
         return active.includes(id)
           && !config.draftees.includes(id)
           && !busy.has(id)
+          && chunk.every((rowIndex) => isAvailableAt(rowIndex, id, config))
           && (chunk[0] === HOURS.indexOf("00-01") || ambulanceRunBefore(chunk[0], id, column) + chunk.length <= 4);
       }).slice(0, 2);
       if (pair.filter((id) => config.females.includes(id)).length > 1) pair = [];
     }
     if (pair.length < 2) pair = pickAmbulancePair(chunk, column, active, config, lastPair);
+    if (pair.length < 2 && column === "amb1" && chunk.length > 2) {
+      chunk = rows.slice(index, index + 2);
+      const preferredShort = uniqueIds(chunk.flatMap((rowIndex) => preferredByRow.get(rowIndex) || []));
+      if (preferredShort.length >= 2) {
+        const busy = new Set(chunk.flatMap((rowIndex) => [...busyIdsAt(rowIndex, [column, "standby"])]));
+        pair = preferredShort.filter((id) => {
+          return active.includes(id)
+            && !config.draftees.includes(id)
+            && !busy.has(id)
+            && chunk.every((rowIndex) => isAvailableAt(rowIndex, id, config))
+            && (chunk[0] === HOURS.indexOf("00-01") || ambulanceRunBefore(chunk[0], id, column) + chunk.length <= 4);
+        }).slice(0, 2);
+        if (pair.filter((id) => config.females.includes(id)).length > 1) pair = [];
+      }
+      if (pair.length < 2) pair = pickAmbulancePair(chunk, column, active, config, lastPair);
+    }
     if (pair.length === 2) {
       place(chunk, column, pair, true);
       lastPair = pair;
@@ -269,7 +303,8 @@ function fillAmbulanceCoverage(active, config) {
 function applyTrainingHour(active) {
   const row = HOURS.indexOf("16-17");
   const busy = busyIdsAt(row, ["training", "standby"]);
-  const trainees = active.filter((id) => !busy.has(id));
+  const config = getConfig();
+  const trainees = active.filter((id) => !busy.has(id) && isAvailableAt(row, id, config));
   if (trainees.length) place([row], "training", trainees, true);
 }
 
@@ -288,23 +323,59 @@ function fillDeskCoverage(active, config) {
       : supervisorRows.has(rowIndex)
       ? [bosses, regulars, draftees, active]
       : [nightRegulars, regulars, draftees, active];
-    const staff = availableFrom(rowIndex, pools);
+    const staff = availableFrom(rowIndex, pools, config);
     if (staff) place([rowIndex], "desk", [staff], true);
+  });
+}
+
+function allowedRestRows(id, config) {
+  const forbidden = new Set([...hourRange("16-17", "17-18"), ...hourRange("22-23", "06-07")]);
+  if (config.leaveStaff.includes(id)) {
+    return hourRange("08-09", "20-21").filter((row) => !forbidden.has(row));
+  }
+  return HOURS.map((_, index) => index).filter((row) => !forbidden.has(row));
+}
+
+function findRestRows(id, config) {
+  const preferredStarts = config.leaveStaff.includes(id)
+    ? ["18-19", "14-15", "12-13", "10-11"]
+    : ["12-13", "14-15", "10-11", "18-19"];
+  const allowed = new Set(allowedRestRows(id, config));
+  const canRest = (rows) => {
+    return rows.length === 2
+      && rows.every((row) => allowed.has(row) && isAvailableAt(row, id, config))
+      && rows.every((row) => !busyIdsAt(row, ["standby", "rest"]).has(id));
+  };
+  for (const start of preferredStarts) {
+    const startIndex = HOURS.indexOf(start);
+    const rows = [startIndex, startIndex + 1].filter((row) => row >= 0 && row < HOURS.length);
+    if (canRest(rows)) return rows;
+  }
+  for (let row = 0; row < HOURS.length - 1; row += 1) {
+    const rows = [row, row + 1];
+    if (canRest(rows)) return rows;
+  }
+  return [];
+}
+
+function assignRestPeriods(active, config) {
+  active.forEach((id) => {
+    if (config.draftees.includes(id)) return;
+    if (roster.some((row) => parseIds(row.rest).includes(id))) return;
+    const rows = findRestRows(id, config);
+    if (rows.length) place(rows, "rest", [id], true);
   });
 }
 
 function generateRoster() {
   const config = getConfig();
+  applySupervisorLeaveRule(config);
   roster = makeBlankRoster();
   const active = config.active;
   if (!active.length) {
     alert("請先輸入今日上班人員。");
     return;
   }
-
-  const nightPool = active.filter((id) => !config.bosses.includes(id) && !config.draftees.includes(id));
-  const nightDesk = nightPool[0];
-  if (nightDesk) place([...hourRange("22-23", "23-00"), ...hourRange("23-00", "00-01"), ...hourRange("00-01", "06-07")], "desk", [nightDesk], true);
 
   config.prevNight.forEach((id) => {
     if (active.includes(id) && !config.draftees.includes(id)) place(hourRange("08-09", "10-11"), "rest", [id], true);
@@ -326,32 +397,24 @@ function generateRoster() {
     if (ids.length) place(hourRange(duty.start, duty.end), duty.type, ids, true);
   });
 
-  active.forEach((id) => {
-    if (config.draftees.includes(id)) return;
-    const hasRest = roster.some((row) => parseIds(row.rest).includes(id));
-    if (!hasRest) {
-      const target = config.leaveStaff.includes(id) ? "18-19" : "12-13";
-      place(hourRange(target, HOURS[HOURS.indexOf(target) + 2]), "rest", [id], true);
-    }
-  });
-
   fillAmbulanceCoverage(active, config);
   fillDeskCoverage(active, config);
-  fillStandby(active);
+  assignRestPeriods(active, config);
+  fillStandby(active, config);
   applyTrainingHour(active);
-  fillStandby(active);
+  fillStandby(active, config);
   renderRoster();
   validateRoster();
   persist();
 }
 
-function fillStandby(active) {
+function fillStandby(active, config = getConfig()) {
   roster.forEach((row, rowIndex) => {
     const busy = new Set();
     COLUMNS.filter((col) => col.id !== "standby").forEach((col) => {
       parseIds(row[col.id]).forEach((id) => busy.add(id));
     });
-    const standby = active.filter((id) => !busy.has(id));
+    const standby = active.filter((id) => !busy.has(id) && isAvailableAt(rowIndex, id, config));
     roster[rowIndex].standby = idsToText(standby);
   });
 }
@@ -433,7 +496,22 @@ function validateRoster() {
     if (!config.active.includes(id)) return;
     const lateRest = HOURS.slice(12).some((_, offset) => parseIds(roster[offset + 12].rest).includes(id));
     if (lateRest) issues.push({ level: "error", text: `${id} 外宿人員休息需在 20:00 前完成。` });
+    hourRange("20-21", "08-09").forEach((row) => {
+      COLUMNS.forEach((col) => {
+        if (parseIds(roster[row][col.id]).includes(id)) {
+          issues.push({ level: "error", text: `${id} 外宿人員 20-08 不應出現在勤務表。`, row, col: col.id });
+        }
+      });
+    });
   });
+
+  const activeBosses = config.active.filter((id) => config.bosses.includes(id));
+  if (activeBosses.length > 2) {
+    issues.push({ level: "error", text: `當日主管上班最多 2 人，目前為 ${activeBosses.length} 人。` });
+  }
+  if (activeBosses.length === 2 && !activeBosses.some((id) => config.leaveStaff.includes(id))) {
+    issues.push({ level: "error", text: "當日有 2 位主管上班時，需有 1 位主管外宿。" });
+  }
 
   COLUMNS.filter((col) => col.kind === "amb").forEach((col) => {
     const requiredRows = new Set(ambulanceRequiredRows(col.id, config.active, config));
