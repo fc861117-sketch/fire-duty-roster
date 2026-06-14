@@ -335,6 +335,25 @@ function fillDeskCoverage(active, config) {
   });
 }
 
+function assignNightDesk(active, config) {
+  const nightRows = hourRange("22-23", "06-07");
+  const candidates = active.filter((id) => {
+    return !config.bosses.includes(id)
+      && !config.draftees.includes(id)
+      && !config.leaveStaff.includes(id)
+      && !config.rookies.includes(id)
+      && nightRows.every((row) => !busyIdsAt(row, ["desk", "standby"]).has(id));
+  });
+  const fallback = active.filter((id) => {
+    return !config.bosses.includes(id)
+      && !config.draftees.includes(id)
+      && !config.leaveStaff.includes(id)
+      && nightRows.every((row) => !busyIdsAt(row, ["desk", "standby"]).has(id));
+  });
+  const staff = candidates[0] || fallback[0];
+  if (staff) place(nightRows, "desk", [staff], true);
+}
+
 function allowedRestRows(id, config) {
   const forbidden = new Set([...hourRange("16-17", "17-18"), ...hourRange("22-23", "06-07")]);
   if (config.leaveStaff.includes(id)) {
@@ -400,6 +419,7 @@ function generateRoster() {
   });
 
   fillAmbulanceCoverage(active, config);
+  assignNightDesk(active, config);
   fillDeskCoverage(active, config);
   assignRestPeriods(active, config);
   fillStandby(active, config);
@@ -574,6 +594,11 @@ function validateRoster() {
   }
 
   const nightCols = ["desk", "amb1", "amb2"];
+  const nightDeskRows = hourRange("22-23", "06-07");
+  const nightDeskIds = uniqueIds(nightDeskRows.flatMap((row) => parseIds(roster[row].desk)));
+  if (nightDeskIds.length !== 1 || nightDeskRows.some((row) => parseIds(roster[row].desk).length !== 1)) {
+    issues.push({ level: "error", text: "22-06 值宿勤務需由同一人編排。" });
+  }
   hourRange("22-23", "06-07").forEach((row) => {
     nightCols.forEach((col) => {
       const boss = parseIds(roster[row]?.[col]).find((id) => config.bosses.includes(id));

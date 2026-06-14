@@ -91,12 +91,15 @@ function runScenario(name, inputs) {
     const deskBad = roster
       .map((row, index) => parse(row.desk).length ? null : HOURS[index])
       .filter(Boolean);
+    const nightDeskRows = hourRange("22-23", "06-07");
+    const nightDeskIds = [...new Set(nightDeskRows.flatMap((row) => parse(roster[row].desk)))];
+    const nightDeskBad = nightDeskIds.length !== 1 || nightDeskRows.some((row) => parse(roster[row].desk).length !== 1);
     const activeDraftees = config.active.filter((id) => config.draftees.includes(id));
     const drafteeHours = Object.fromEntries(activeDraftees.map((id) => {
       return [id, roster.filter((row) => parse(row.desk).includes(id)).length];
     }));
     const drafteeOverLimit = activeDraftees.filter((id) => drafteeHours[id] > (activeDraftees.length >= 2 ? 8 : 10));
-    return { name: ${JSON.stringify(name)}, errors, awayBad, amb1Bad, deskBad, leaveStaff: config.leaveStaff, drafteeHours, drafteeOverLimit };
+    return { name: ${JSON.stringify(name)}, errors, awayBad, amb1Bad, deskBad, nightDeskBad, nightDeskIds, leaveStaff: config.leaveStaff, drafteeHours, drafteeOverLimit };
   })()`, context);
 }
 
@@ -117,7 +120,7 @@ const missingSupervisorLeave = runScenario("two supervisors without leave entry"
 });
 
 const failed = scenarios.filter((item) => {
-  return item.errors.length || item.awayBad.length || item.amb1Bad.length || item.deskBad.length || item.drafteeOverLimit.length;
+  return item.errors.length || item.awayBad.length || item.amb1Bad.length || item.deskBad.length || item.nightDeskBad || item.drafteeOverLimit.length;
 });
 
 const expectedSupervisorLeaveError = missingSupervisorLeave.errors.some((text) => text.includes("需有 1 位主管外宿"));
