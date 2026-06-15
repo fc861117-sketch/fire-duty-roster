@@ -94,12 +94,18 @@ function runScenario(name, inputs) {
     const nightDeskRows = hourRange("22-23", "06-07");
     const nightDeskIds = [...new Set(nightDeskRows.flatMap((row) => parse(roster[row].desk)))];
     const nightDeskBad = nightDeskIds.length !== 1 || nightDeskRows.some((row) => parse(roster[row].desk).length !== 1);
+    const deskRunBad = config.active.flatMap((id) => {
+      return deskRunsFor(id)
+        .filter((run) => !(run.start === HOURS.indexOf("22-23") && run.length === 8))
+        .filter((run) => run.length > 4)
+        .map((run) => id + ":" + HOURS[run.start] + ":" + run.length);
+    });
     const activeDraftees = config.active.filter((id) => config.draftees.includes(id));
     const drafteeHours = Object.fromEntries(activeDraftees.map((id) => {
       return [id, roster.filter((row) => parse(row.desk).includes(id)).length];
     }));
     const drafteeOverLimit = activeDraftees.filter((id) => drafteeHours[id] > (activeDraftees.length >= 2 ? 8 : 10));
-    return { name: ${JSON.stringify(name)}, errors, awayBad, amb1Bad, deskBad, nightDeskBad, nightDeskIds, leaveStaff: config.leaveStaff, drafteeHours, drafteeOverLimit };
+    return { name: ${JSON.stringify(name)}, errors, awayBad, amb1Bad, deskBad, nightDeskBad, nightDeskIds, deskRunBad, leaveStaff: config.leaveStaff, drafteeHours, drafteeOverLimit };
   })()`, context);
 }
 
@@ -111,6 +117,15 @@ const scenarios = [
   runScenario("seven-plus with two supervisors", {
     activeStaff: "01,02,04,05,06,07,08,09,10,12,13,15,17,18,19,20",
     leaveStaff: "02"
+  }),
+  runScenario("eight non-draftees with one draftee", {
+    activeStaff: "01,04,05,06,07,08,09,10,12,19",
+    leaveStaff: ""
+  }),
+  runScenario("six non-draftees with previous night rest", {
+    activeStaff: "01,04,05,06,07,08,19,20",
+    prevNightStaff: "04,05",
+    leaveStaff: "01"
   })
 ];
 
@@ -120,7 +135,7 @@ const missingSupervisorLeave = runScenario("two supervisors without leave entry"
 });
 
 const failed = scenarios.filter((item) => {
-  return item.errors.length || item.awayBad.length || item.amb1Bad.length || item.deskBad.length || item.nightDeskBad || item.drafteeOverLimit.length;
+  return item.errors.length || item.awayBad.length || item.amb1Bad.length || item.deskBad.length || item.nightDeskBad || item.deskRunBad.length || item.drafteeOverLimit.length;
 });
 
 const expectedSupervisorLeaveError = missingSupervisorLeave.errors.some((text) => text.includes("需有 1 位主管外宿"));

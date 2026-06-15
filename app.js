@@ -166,6 +166,15 @@ function ambulanceRunBefore(rowIndex, id, column) {
   return total;
 }
 
+function deskRunBefore(rowIndex, id) {
+  let total = 0;
+  for (let index = rowIndex - 1; index >= 0; index -= 1) {
+    if (!parseIds(roster[index].desk).includes(id)) break;
+    total += 1;
+  }
+  return total;
+}
+
 function ambulanceRequiredRows(column, active, config) {
   if (column === "amb1") return HOURS.map((_, index) => index);
   const nonDrafteeCount = active.filter((id) => !config.draftees.includes(id)).length;
@@ -302,6 +311,8 @@ function applyTrainingHour(active) {
 
 function fillDeskCoverage(active, config) {
   const noDrafteeRows = new Set(hourRange("22-23", "06-07"));
+  const preNightRows = new Set(hourRange("20-21", "22-23"));
+  const nightDeskId = uniqueIds(hourRange("22-23", "06-07").flatMap((row) => parseIds(roster[row].desk)))[0] || "";
   const bosses = active.filter((id) => config.bosses.includes(id));
   const draftees = active.filter((id) => config.draftees.includes(id));
   const regulars = active.filter((id) => !config.bosses.includes(id) && !config.draftees.includes(id));
@@ -310,7 +321,11 @@ function fillDeskCoverage(active, config) {
   const deskHours = (id) => roster.filter((row) => parseIds(row.desk).includes(id)).length;
   const pickDeskStaff = (rowIndex) => {
     const busy = busyIdsAt(rowIndex, ["desk", "standby"]);
-    const available = (ids) => ids.filter((id) => !busy.has(id) && isAvailableAt(rowIndex, id, config));
+    const available = (ids) => ids.filter((id) => {
+      if (busy.has(id) || !isAvailableAt(rowIndex, id, config)) return false;
+      if (preNightRows.has(rowIndex) && id === nightDeskId) return false;
+      return deskRunBefore(rowIndex, id) < 4;
+    });
     if (!noDrafteeRows.has(rowIndex)) {
       const draftee = available(draftees)
         .filter((id) => deskHours(id) < drafteeTarget)
@@ -612,6 +627,15 @@ function validateRoster() {
     if (!parseIds(row.desk).length) issues.push({ level: "error", text: `${HOURS[rowIndex]} 值班欄需至少 1 人。`, row: rowIndex, col: "desk" });
   });
 
+  config.active.forEach((id) => {
+    deskRunsFor(id).forEach((run) => {
+      const nightException = run.start === HOURS.indexOf("22-23") && run.length === 8;
+      if (run.length > 4 && !nightException) {
+        issues.push({ level: "error", text: `${id} 值班連續超過 4 小時。` });
+      }
+    });
+  });
+
   const nightAmb1People = uniqueIds(hourRange("00-01", "08-09").flatMap((row) => parseIds(roster[row].amb1)));
   const dayWorkRows = hourRange("08-09", "22-23");
   nightAmb1People.forEach((id) => {
@@ -705,6 +729,23 @@ function maxConsecutive(id, column) {
     }
   });
   return max;
+}
+
+function deskRunsFor(id) {
+  const runs = [];
+  let current = 0;
+  let start = 0;
+  roster.forEach((row, rowIndex) => {
+    if (parseIds(row.desk).includes(id)) {
+      if (!current) start = rowIndex;
+      current += 1;
+    } else if (current) {
+      runs.push({ start, length: current });
+      current = 0;
+    }
+  });
+  if (current) runs.push({ start, length: current });
+  return runs;
 }
 
 function ambulanceRunsFor(id, column) {
